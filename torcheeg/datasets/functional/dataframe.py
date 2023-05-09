@@ -14,15 +14,16 @@ mne.set_log_level(40)#ERROR
 MAX_QUEUE_SIZE = 1024
 
 
-def transform_producer(file_path_id: Tuple[str, int], read_file: Callable, chunk_size: int, overlap: int,
+def transform_producer(df, read_file: Callable, chunk_size: int, overlap: int,
                        num_channel: int, before_trial: Union[None, Callable],
                        transform: Union[None, Callable],
                        after_trial: Union[Callable, None], queue: Queue):
-   
-    file_path = file_path_id[0]
-    subject_id = file_path_id[1]
-    file_label= file_path.split(os.sep)
-    label, file_name  = file_label[-2], file_label[-1]
+
+    subject_id = df[1]['subject']
+    label= df[1]['label']
+    file_path  = df[1]['path']
+    file_name = file_path
+    # file_name = file_path.split('')
     trial_samples = read_file(file_path, chunk_size)
     events = [i[0] for i in trial_samples.events]
     events.append(events[-1] + np.diff(events)[0])# time interval between all events are same
@@ -94,7 +95,7 @@ class SingleProcessingQueue:
             self.write_info_fn(info)
 
 
-def folder_constructor(
+def df_constructor(
     root_path: str = './eeg_raw_data',
     chunk_size: int = 800,
     overlap: int = 0,
@@ -107,7 +108,8 @@ def folder_constructor(
     io_mode: str = 'lmdb',
     num_worker: int = 0,
     verbose: bool = True,
-    read_func =None
+    read_func = None, 
+    dataframe = None
     
 ) -> None:
     # init IO
@@ -131,14 +133,11 @@ def folder_constructor(
 
     # loop to access the dataset files
     
-    folder_path = Path(root_path)
-    file_paths = folder_path.glob('**/*.*')
-    file_path_list = [str(i).replace('\\','/') for i in file_paths]   
-    subjects = list(range(len(file_path_list))) 
-    file_path_list_subject = zip(file_path_list,subjects)
+    # folder_path = Path(root_path) # TODO
+    # dataframe = dataframe['path']
     if verbose:
         # show process bar
-        pbar = tqdm(total=len(file_path_list))
+        pbar = tqdm(total=len(dataframe))
         pbar.set_description("[Folder Data]")
 
     if num_worker < 0:
@@ -163,7 +162,7 @@ def folder_constructor(
                                 after_trial=after_trial,
                                 queue=queue)
 
-        for _ in Pool(num_worker).imap(partial_mp_fn, file_path_list_subject):
+        for _ in Pool(num_worker).imap(partial_mp_fn, dataframe.iterrows()):
             if verbose:
                 pbar.update(1)
 
@@ -173,8 +172,8 @@ def folder_constructor(
         io_consumer_process.close()
 
     else:
-        for file_path in file_path_list_subject:
-            transform_producer(file_path_id=file_path,
+        for df in dataframe.iterrows():
+            transform_producer(df=df,
                                chunk_size=chunk_size,
                                read_file=read_func,
                                overlap=overlap,
